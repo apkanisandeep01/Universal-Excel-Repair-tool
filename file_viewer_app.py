@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 from pathlib import Path
+import chardet
 
 st.set_page_config(page_title="Excel Repair Tool", layout="centered")
 st.title("📘🔧 Excel Repair & Export Assistant")
@@ -29,7 +30,19 @@ else:
     try:
         # Step 2: First read file WITHOUT headers (raw load)
         if file_extension == "csv":
-            temp_df = pd.read_csv(uploaded_file, header=None, on_bad_lines="skip")
+            # Detect file encoding
+            raw_data = uploaded_file.read()
+            detected_encoding = chardet.detect(raw_data)['encoding']
+            uploaded_file.seek(0)
+            st.info(f"Detected file encoding: {detected_encoding or 'utf-8'}")
+
+            temp_df = pd.read_csv(
+                uploaded_file,
+                header=None,
+                on_bad_lines="skip",
+                encoding=detected_encoding or "utf-8"
+            )
+
         elif file_extension == "xls":
             temp_df = pd.read_excel(uploaded_file, header=None, engine="xlrd")
         elif file_extension == "xlsb":
@@ -59,7 +72,12 @@ else:
         # Step 2c: Reload file with selected header row
         uploaded_file.seek(0)
         if file_extension == "csv":
-            df = pd.read_csv(uploaded_file, header=header_row, on_bad_lines="skip")
+            df = pd.read_csv(
+                uploaded_file,
+                header=header_row,
+                on_bad_lines="skip",
+                encoding=detected_encoding or "utf-8"
+            )
         elif file_extension == "xls":
             df = pd.read_excel(uploaded_file, header=header_row, engine="xlrd")
         elif file_extension == "xlsb":
@@ -74,7 +92,8 @@ else:
             max_value=len(df),
             value=min(5, len(df))
         )
-        st.subheader(f"Total No of rows are: {df.shape[0]} and Total no columns are: {df.shape[1]}")
+
+        st.subheader(f"Total rows: {df.shape[0]} | Total columns: {df.shape[1]}")
         st.subheader(f"👀 Preview of first {num_rows} rows")
         st.dataframe(df.head(num_rows))
 
