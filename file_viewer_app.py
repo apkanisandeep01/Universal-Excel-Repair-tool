@@ -28,19 +28,25 @@ else:
     file_extension = Path(uploaded_file.name).suffix.lower().strip(".")
 
     try:
-        # Step 2: First read file WITHOUT headers (raw load)
+        # Step 2: Handle CSV files with robust encoding detection
         if file_extension == "csv":
-            # Detect file encoding
-            raw_data = uploaded_file.read()
-            detected_encoding = chardet.detect(raw_data)['encoding']
-            uploaded_file.seek(0)
-            st.info(f"Detected file encoding: {detected_encoding or 'utf-8'}")
+            # Read the entire file bytes for encoding detection
+            file_bytes = uploaded_file.read()
+            detection = chardet.detect(file_bytes)
+            detected_encoding = detection.get("encoding") or "utf-8"
 
+            st.info(f"Detected file encoding: {detected_encoding}")
+
+            # Create BytesIO for pandas to read again
+            file_buffer = io.BytesIO(file_bytes)
+
+            # Load raw data without headers
             temp_df = pd.read_csv(
-                uploaded_file,
+                file_buffer,
                 header=None,
                 on_bad_lines="skip",
-                encoding=detected_encoding or "utf-8"
+                encoding=detected_encoding,
+                low_memory=False
             )
 
         elif file_extension == "xls":
@@ -52,15 +58,9 @@ else:
 
         if temp_df.empty:
             st.warning("⚠️ The file has no valid data or columns. Showing raw file content instead.")
-            uploaded_file.seek(0)
-            raw_content = uploaded_file.read(500)  # first 500 bytes
-            try:
-                st.text(raw_content.decode("utf-8", errors="ignore"))
-            except Exception:
-                st.text(str(raw_content))
             st.stop()
 
-        # Step 2b: Ask which row to use as header
+        # Step 2b: Choose header row
         st.subheader("⚙️ Choose Header Row")
         header_row = st.number_input(
             "Select the row number to use as header (First row as Default)",
@@ -69,14 +69,15 @@ else:
             value=1
         ) - 1
 
-        # Step 2c: Reload file with selected header row
-        uploaded_file.seek(0)
+        # Step 2c: Reload file with selected header
         if file_extension == "csv":
+            file_buffer.seek(0)
             df = pd.read_csv(
-                uploaded_file,
+                file_buffer,
                 header=header_row,
                 on_bad_lines="skip",
-                encoding=detected_encoding or "utf-8"
+                encoding=detected_encoding,
+                low_memory=False
             )
         elif file_extension == "xls":
             df = pd.read_excel(uploaded_file, header=header_row, engine="xlrd")
@@ -85,19 +86,18 @@ else:
         else:
             df = pd.read_excel(uploaded_file, header=header_row, engine="openpyxl")
 
-        # Step 3: Preview rows
+        # Step 3: Preview
         num_rows = st.number_input(
             "How many rows do you want to view?",
             min_value=1,
             max_value=len(df),
             value=min(5, len(df))
         )
-
         st.subheader(f"Total rows: {df.shape[0]} | Total columns: {df.shape[1]}")
         st.subheader(f"👀 Preview of first {num_rows} rows")
         st.dataframe(df.head(num_rows))
 
-        # Step 4: Prepare in-memory file for download
+        # Step 4: Prepare file for download
         repaired_filename = f"{original_name}_repaired.xlsx"
         output = io.BytesIO()
         df.to_excel(output, index=False)
